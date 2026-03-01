@@ -44,7 +44,9 @@ The web interface includes:
 
 ## Secure remote access
 
-Modern browsers block microphone access on pages not served over HTTPS — which means you can't use the web interface's voice features over a plain local IP. The cleanest solution I've found is [Tailscale](https://tailscale.com/). It creates a private encrypted network between your devices, and with HTTPS certificates enabled you get a proper `*.ts.net` address with a real certificate. No port forwarding, no dynamic DNS, no fiddling.
+Modern browsers require HTTPS for microphone access, which makes things awkward when your Pi is just sitting on your local network. [Tailscale](https://tailscale.com/) solves this elegantly — install it on your Pi and your other devices, enable HTTPS certificates, and you get a proper `*.ts.net` address with a real cert, reachable from anywhere on your Tailnet. No port forwarding, no dynamic DNS nonsense.
+
+> **Disclosure:** I work at Tailscale. That said, I genuinely use it for this project and it's the best solution I've found for exactly this problem.
 
 1. Install Tailscale on the Pi and your client device
 2. Enable [HTTPS certificates](https://tailscale.com/kb/1153/enabling-https/) in the Tailscale admin console
@@ -54,7 +56,7 @@ Modern browsers block microphone access on pages not served over HTTPS — which
    ```
 4. Access the web UI at `https://<your-pi-hostname>.ts.net`
 
-You can then reach BMO from your phone, laptop, or any device on your Tailnet — with full microphone support, without exposing it to the internet.
+Your BMO is then reachable from your phone, laptop, or any device on your Tailnet — mic access works, and it's not exposed to the open internet.
 
 ---
 
