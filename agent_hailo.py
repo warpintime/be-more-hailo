@@ -31,7 +31,6 @@ import scipy.signal
 
 # AI Engines
 from openwakeword.model import Model
-from duckduckgo_search import DDGS 
 
 # Import unified core modules
 from core.llm import Brain
