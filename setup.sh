@@ -13,7 +13,7 @@ echo -e "${GREEN}BMO Agent Setup${NC}"
 echo -e "${YELLOW}[1/9] Installing system packages...${NC}"
 sudo apt update
 sudo apt install -y \
-    python3-tk libasound2-dev libportaudio2 libatlas-base-dev \
+    python3-tk python3-venv libasound2-dev libportaudio2 libopenblas-dev \
     cmake build-essential git curl ffmpeg \
     libcamera-apps python3-libcamera  # Camera support (rpicam-still / libcamera-still)
 
