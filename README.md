@@ -149,24 +149,28 @@ chmod +x *.sh
 
 ## Running
 
-**Web server:**
-```bash
-source venv/bin/activate
-./start_web.sh
-```
-Open `http://<YOUR_PI_IP>:8080` in a browser (or your Tailscale HTTPS address for microphone access).
+## Running
 
-**On-device GUI:**
+**Web Interface (Kiosk Mode):**
+```bash
+./setup_web.sh
+```
+This script installs all necessary Python and system audio dependencies, sets up the `bmo-web.service` to start on boot, and configures Chromium to automatically open in full-screen kiosk mode on desktop login.
+
+To manually start/stop the web backend: `sudo systemctl start|stop|restart bmo-web`
+To run manually without the service: `. venv/bin/activate && ./start_web.sh`
+
+**On-device GUI (Tkinter):**
 ```bash
 source venv/bin/activate
 ./start_agent.sh
 ```
 
-**Auto-start on boot:**
+**Auto-start LLM & GUI Services:**
 ```bash
 ./setup_services.sh
 ```
-Then manage with `sudo systemctl start|stop|restart bmo-web` or `bmo-ollama`.
+Then manage with `sudo systemctl start|stop|restart bmo-ollama` or `bmo-gui`.
 
 ---
 
@@ -239,16 +243,20 @@ BMO is pretty easy to make your own:
 
 | Expression | Description |
 |---|---|
-| `happy` | Upturned arc eyes with a smile |
-| `sad` | Downturned slash eyes with a frown |
-| `angry` | Crossed slash eyes with a flat mouth |
-| `surprised` | Big round eyes with an O-shaped mouth |
+| `happy` | Upturned arc eyes with a bouncing smile |
+| `sad` | Downturned slash eyes with a frown that droops |
+| `angry` | Crossed slash eyes with a flat trembling mouth |
+| `surprised` | Big round eyes with a pulsing O-shaped mouth |
 | `sleepy` | Closed eyes with floating Z letters |
 | `dizzy` | X-shaped eyes with a wavy squiggle mouth |
-| `cheeky` | One open eye, one winking, tongue sticking out |
+| `cheeky` | One open eye, one winking, wagging tongue |
 | `heart` | Beating heart-shaped eyes (scales up and down) |
 | `starry_eyed` | Spinning 4-point sparkle stars for eyes |
 | `confused` | One oversized eye, one flat line, wiggly mouth |
+| `daydream` | Eyes drifted up with floating thought bubbles *(screensaver)* |
+| `bored` | Eyes shifting left and right *(screensaver)* |
+| `jamming` | Closed eyes, big smile, bouncing musical notes *(screensaver)* |
+| `curious` | One eye pulsing larger than the other, tilted look *(screensaver)* |
 
 **Sounds:** Put `.wav` files in `sounds/<category>/`. BMO picks one at random per event.
 
