@@ -5,6 +5,7 @@ BG_COLOR = (189, 255, 203)
 LINE_COLOR = (0, 0, 0)
 MOUTH_FILL = (93, 195, 112)
 WIDTH, HEIGHT = 800, 480
+SCALE = 4
 LINE_WIDTH = 8
 LEFT_EYE_X = 217
 RIGHT_EYE_X = 581
@@ -18,20 +19,24 @@ def ensure_dir(path):
         os.makedirs(path)
 
 def create_face(filename, draw_func):
-    img = Image.new("RGB", (WIDTH, HEIGHT), BG_COLOR)
+    # Render at 4x resolution and scale down for perfect anti-aliasing
+    img = Image.new("RGB", (WIDTH * SCALE, HEIGHT * SCALE), BG_COLOR)
     draw = ImageDraw.Draw(img)
     draw_func(draw)
-    img.save(filename)
+    final_img = img.resize((WIDTH, HEIGHT), resample=Image.Resampling.LANCZOS)
+    final_img.save(filename)
     print(f"Generated {filename}")
 
 # Helper draw functions
 def draw_arc_eye(draw, cx, cy, radius, start, end):
+    cx, cy, radius = cx * SCALE, cy * SCALE, radius * SCALE
+    width = LINE_WIDTH * SCALE
     bbox = [cx - radius, cy - radius, cx + radius, cy + radius]
-    draw.arc(bbox, start, end, fill=LINE_COLOR, width=LINE_WIDTH)
+    draw.arc(bbox, start, end, fill=LINE_COLOR, width=width)
     
     # PIL doesn't round arc ends, so we manually draw circles at the start/end bounds
     import math
-    r = LINE_WIDTH / 2.0 # Perfect radius to snap the ends flush without a gap
+    r = width / 2.0 # Perfect radius to snap the ends flush without a gap
     s_rad = math.radians(start)
     e_rad = math.radians(end)
     sx = cx + radius * math.cos(s_rad)
@@ -42,15 +47,22 @@ def draw_arc_eye(draw, cx, cy, radius, start, end):
     draw.ellipse([ex - r, ey - r, ex + r, ey + r], fill=LINE_COLOR)
 
 def draw_circle_eye(draw, cx, cy, radius):
+    cx, cy, radius = cx * SCALE, cy * SCALE, radius * SCALE
     bbox = [cx - radius, cy - radius, cx + radius, cy + radius]
     draw.ellipse(bbox, fill=LINE_COLOR)
 
 def draw_line(draw, x1, y1, x2, y2, width=LINE_WIDTH):
+    x1, y1, x2, y2 = x1 * SCALE, y1 * SCALE, x2 * SCALE, y2 * SCALE
+    width = width * SCALE
     draw.line([(x1, y1), (x2, y2)], fill=LINE_COLOR, width=width)
     # Rounded caps
     r = width / 2.0
     draw.ellipse([x1 - r, y1 - r, x1 + r, y1 + r], fill=LINE_COLOR)
     draw.ellipse([x2 - r, y2 - r, x2 + r, y2 + r], fill=LINE_COLOR)
+
+def draw_ellipse(draw, bbox, fill=None, outline=None, width=0):
+    box = [bbox[0]*SCALE, bbox[1]*SCALE, bbox[2]*SCALE, bbox[3]*SCALE]
+    draw.ellipse(box, fill=fill, outline=outline, width=width*SCALE)
 
 def draw_regular_eyes(draw, blink=0.0):
     if blink >= 0.9:
@@ -106,11 +118,11 @@ def draw_mouth(draw, type="straight", open_amount=0):
         draw_arc_eye(draw, 399, MOUTH_Y + 20, MOUTH_W // 2, 225, 315)
     elif type == "surprised":
         # small circle
-        draw.ellipse([399 - 20, MOUTH_Y - 20, 399 + 20, MOUTH_Y + 20], fill=MOUTH_FILL, outline=LINE_COLOR, width=LINE_WIDTH)
+        draw_ellipse(draw, [399 - 20, MOUTH_Y - 20, 399 + 20, MOUTH_Y + 20], fill=MOUTH_FILL, outline=LINE_COLOR, width=LINE_WIDTH)
     elif type == "speaking":
         # Oval mouth
         h = max(10, min(50, open_amount))
-        draw.ellipse([m_left, MOUTH_Y - h//2, m_right, MOUTH_Y + h//2], fill=MOUTH_FILL, outline=LINE_COLOR, width=LINE_WIDTH)
+        draw_ellipse(draw, [m_left, MOUTH_Y - h//2, m_right, MOUTH_Y + h//2], fill=MOUTH_FILL, outline=LINE_COLOR, width=LINE_WIDTH)
     elif type == "tongue":
         # straight line with a U underneath for tongue
         draw_line(draw, m_left, MOUTH_Y, m_right, MOUTH_Y)
@@ -168,9 +180,19 @@ def gen_sleepy(base_dir="faces/sleepy"):
         def draw_sleepy(d, off=z_offset):
             draw_regular_eyes(d, 1.0)
             draw_mouth(d, "straight")
-            # Draw a Z
-            if off > 10: d.text((600, 120 - off), "Z", fill=LINE_COLOR, font=None, font_size=40)
-            if off > 20: d.text((650, 80 - off), "z", fill=LINE_COLOR, font=None, font_size=30)
+            # Draw a Z using lines
+            if off > 10:
+                bx, by = 600, 120 - off
+                s = 25
+                draw_line(d, bx, by, bx+s, by, width=4)
+                draw_line(d, bx+s, by, bx, by+s, width=4)
+                draw_line(d, bx, by+s, bx+s, by+s, width=4)
+            if off > 20: 
+                bx, by = 650, 80 - off
+                s = 15
+                draw_line(d, bx, by, bx+s, by, width=3)
+                draw_line(d, bx+s, by, bx, by+s, width=3)
+                draw_line(d, bx, by+s, bx+s, by+s, width=3)
         create_face(f"{base_dir}/sleepy_{i:02d}.png", draw_sleepy)
 
 def gen_thinking(base_dir="faces/thinking"):
@@ -182,7 +204,7 @@ def gen_thinking(base_dir="faces/thinking"):
             draw_regular_eyes(d, 0.0)
             draw_mouth(d, "straight")
             # Draw a little thinking dot
-            d.ellipse([380 + off, 240, 400 + off, 260], fill=LINE_COLOR)
+            draw_ellipse(d, [380 + off, 240, 400 + off, 260], fill=LINE_COLOR)
         create_face(f"{base_dir}/thinking_{i:02d}.png", draw_think)
 
 def gen_dizzy(base_dir="faces/dizzy"):
