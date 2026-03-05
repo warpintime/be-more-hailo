@@ -68,8 +68,12 @@ class BotStates:
     SLEEPY = "sleepy"
     DIZZY = "dizzy"
     CHEEKY = "cheeky"
+    HEART = "heart"
+    STARRY_EYED = "starry_eyed"
+    CONFUSED = "confused"
 
 class BotGUI:
+
     BG_WIDTH, BG_HEIGHT = 800, 480 
     OVERLAY_WIDTH, OVERLAY_HEIGHT = 400, 300 
 
@@ -108,6 +112,10 @@ class BotGUI:
 
         # Start Main Thread
         threading.Thread(target=self.main_loop, daemon=True).start()
+        
+        # Start Screensaver Audio Thread
+        self.last_screensaver_audio_time = time.time()
+        threading.Thread(target=self.screensaver_audio_loop, daemon=True).start()
 
     def exit_fullscreen(self, event=None):
         self.stop_event.set()
@@ -149,7 +157,7 @@ class BotGUI:
     def load_animations(self):
         base = "faces"
         all_face_paths = []
-        for state in [BotStates.IDLE, BotStates.LISTENING, BotStates.THINKING, BotStates.SPEAKING, BotStates.ERROR, BotStates.HAPPY, BotStates.SAD, BotStates.ANGRY, BotStates.SURPRISED, BotStates.SLEEPY, BotStates.DIZZY, BotStates.CHEEKY]:
+        for state in [BotStates.IDLE, BotStates.LISTENING, BotStates.THINKING, BotStates.SPEAKING, BotStates.ERROR, BotStates.HAPPY, BotStates.SAD, BotStates.ANGRY, BotStates.SURPRISED, BotStates.SLEEPY, BotStates.DIZZY, BotStates.CHEEKY, BotStates.HEART, BotStates.STARRY_EYED, BotStates.CONFUSED]:
             path = os.path.join(base, state)
             self.animations[state] = []
             if os.path.exists(path):
@@ -480,7 +488,7 @@ class BotGUI:
                                     chunk = chunk.replace(json_match.group(0), '').strip()
                                 elif action_data.get("action") == "set_expression" and action_data.get("value"):
                                     expr = action_data.get("value").lower()
-                                    if expr in [BotStates.HAPPY, BotStates.SAD, BotStates.ANGRY, BotStates.SURPRISED, BotStates.SLEEPY, BotStates.DIZZY, BotStates.CHEEKY]:
+                                    if expr in [BotStates.HAPPY, BotStates.SAD, BotStates.ANGRY, BotStates.SURPRISED, BotStates.SLEEPY, BotStates.DIZZY, BotStates.CHEEKY, BotStates.HEART, BotStates.STARRY_EYED, BotStates.CONFUSED]:
                                         self.set_state(expr, f"Feeling {expr}...")
                                         # Let it show the expression for ~3 seconds, then we will revert back
                                         # (it will revert to SPEAKING when the next chunk comes in, or IDLE at the end)
@@ -575,6 +583,53 @@ class BotGUI:
                         self.set_state(BotStates.IDLE, "Waiting...")
                 else:
                     self.set_state(BotStates.IDLE, "Waiting...")
+
+    def screensaver_audio_loop(self):
+        import datetime
+        phrases = [
+            "I wonder what Finn and Jake are doing right now.",
+            "Wow... looking at the dust motes float by is so relaxing.",
+            "Does anyone want to play a video game? No? ...Okay.",
+            "Beep boop. I am a machine. Beep.",
+            "I should invent a new recipe for batteries. Maybe with some extra zest.",
+            "Who wants to watch a movie? I can project it on the wall!",
+            "La la la la la... BMO is the best!",
+            "I bet I could beat anyone at a video game right now.",
+            "Sometimes BMO just likes to hum a little tune.",
+            "BMO wonders what the clouds look like today.",
+            "If BMO had a pet, it would be a tiny snail.",
+            "Football... is a tough little guy.",
+        ]
+        
+        while not self.stop_event.is_set():
+            time.sleep(10) # Check every 10 seconds
+            if self.current_state != BotStates.SCREENSAVER:
+                continue
+                
+            now = datetime.datetime.now()
+            hour = now.hour
+            
+            # Quiet Hours: 10 PM to 8 AM
+            if hour >= 22 or hour < 8:
+                continue
+            
+            # Skip if the user is currently talking or interacting
+            # (i.e. BMO recently left screensaver for listening/speaking)
+            if time.time() - self.last_state_change < 30:
+                continue
+                
+            # Random chance: ~5% every 10 seconds = roughly once every 3-4 minutes
+            if random.random() < 0.05:
+                # Ensure we haven't spoken too recently (at least 2 minutes gap)
+                if time.time() - self.last_screensaver_audio_time > 120:
+                    phrase = random.choice(phrases)
+                    print(f"BMO Thinking out loud: {phrase}")
+                    # Brief speaking state so lips move
+                    old_state = self.current_state
+                    self.set_state(BotStates.SPEAKING, "")
+                    self.speak(phrase)
+                    self.set_state(old_state, "")
+                    self.last_screensaver_audio_time = time.time()
 
 if __name__ == "__main__":
     root = tk.Tk()

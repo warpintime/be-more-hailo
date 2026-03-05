@@ -11,9 +11,9 @@ SCALE = 4
 LINE_WIDTH = 8
 LEFT_EYE_X = 217
 RIGHT_EYE_X = 581
-EYE_Y = 193 # Center moved up slightly since arcs extend above
+EYE_Y = 197 # Shifted down by +4 to match original exact placement
 EYE_R = 18
-MOUTH_Y = 301
+MOUTH_Y = 305 # Shifted down by +4
 MOUTH_W = 97
 
 def ensure_dir(path):
@@ -105,6 +105,43 @@ def draw_dizzy_eyes(draw):
     draw_line(draw, LEFT_EYE_X - 15, EYE_Y + 15, LEFT_EYE_X + 15, EYE_Y - 15)
     draw_line(draw, RIGHT_EYE_X - 15, EYE_Y - 15, RIGHT_EYE_X + 15, EYE_Y + 15)
     draw_line(draw, RIGHT_EYE_X - 15, EYE_Y + 15, RIGHT_EYE_X + 15, EYE_Y - 15)
+
+def draw_heart_eye(draw, cx, cy, scale=1.0):
+    # Draw a cute heart shape centered at cx, cy using polygons
+    # Scaled to beat
+    size = 20 * scale
+    import math
+    points = []
+    # Parametric heart equation
+    for t in range(0, 360, 5):
+        rad = math.radians(t)
+        # Heart math
+        x = 16 * (math.sin(rad)**3)
+        y = 13 * math.cos(rad) - 5 * math.cos(2*rad) - 2 * math.cos(3*rad) - math.cos(4*rad)
+        # Flip Y since PIL origin is top-left
+        points.append((cx + x * (size/16.0), cy - y * (size/16.0)))
+    
+    scaled_points = [(p[0]*SCALE, p[1]*SCALE) for p in points]
+    draw.polygon(scaled_points, fill=LINE_COLOR)
+
+def draw_star_eye(draw, cx, cy, rotation=0):
+    # Draw a 4-point sparkle star
+    import math
+    points = []
+    outer_r = 22
+    inner_r = 6
+    for i in range(8):
+        angle = math.radians(rotation + i * 45)
+        r = outer_r if i % 2 == 0 else inner_r
+        points.append((cx + math.sin(angle) * r, cy - math.cos(angle) * r))
+        
+    scaled_points = [(p[0]*SCALE, p[1]*SCALE) for p in points]
+    draw.polygon(scaled_points, fill=LINE_COLOR)
+
+def draw_confused_eyes(draw):
+    # One big, one flat
+    draw_circle_eye(draw, LEFT_EYE_X, EYE_Y, EYE_R + 5)
+    draw_line(draw, RIGHT_EYE_X - EYE_R, EYE_Y, RIGHT_EYE_X + EYE_R, EYE_Y)
 
 def draw_cheeky_eyes(draw):
     draw_circle_eye(draw, LEFT_EYE_X, EYE_Y, EYE_R - 2)
@@ -265,6 +302,32 @@ def gen_cheeky(base_dir="faces/cheeky"):
     for i in range(1, 5):
         create_face(f"{base_dir}/cheeky_{i:02d}.png", lambda d: (draw_cheeky_eyes(d), draw_mouth(d, "tongue")))
 
+def gen_heart(base_dir="faces/heart"):
+    ensure_dir(base_dir)
+    scales = [1.0, 1.2, 1.5, 1.2, 1.0, 1.0]
+    for i, s in enumerate(scales):
+        create_face(f"{base_dir}/heart_{i:02d}.png", lambda d, s=s: (draw_heart_eye(d, LEFT_EYE_X, EYE_Y, s), draw_heart_eye(d, RIGHT_EYE_X, EYE_Y, s), draw_mouth(d, "smile")))
+
+def gen_starry(base_dir="faces/starry_eyed"):
+    ensure_dir(base_dir)
+    for i in range(8):
+        create_face(f"{base_dir}/starry_{i:02d}.png", lambda d, r=i*11.25: (draw_star_eye(d, LEFT_EYE_X, EYE_Y, r), draw_star_eye(d, RIGHT_EYE_X, EYE_Y, r), draw_mouth(d, "surprised")))
+
+def gen_confused(base_dir="faces/confused"):
+    ensure_dir(base_dir)
+    for i in range(1, 5):
+        # reuse wavy mouth logic alternating directions
+        shift = LINE_WIDTH // 2
+        def draw_conf1(d):
+            draw_confused_eyes(d)
+            draw_arc_eye(d, 380 + shift, 300, 20, 180, 360)
+            draw_arc_eye(d, 420 - shift, 300, 20, 0, 180)
+        def draw_conf2(d):
+            draw_confused_eyes(d)
+            draw_arc_eye(d, 380 + shift, 300, 20, 0, 180)
+            draw_arc_eye(d, 420 - shift, 300, 20, 180, 360)
+        create_face(f"{base_dir}/confused_{i:02d}.png", draw_conf1 if i % 2 == 0 else draw_conf2)
+
 if __name__ == "__main__":
     print("Generating BMO Faces...")
     gen_idle()
@@ -277,7 +340,8 @@ if __name__ == "__main__":
     gen_thinking()
     gen_dizzy()
     gen_cheeky()
+    gen_heart()
+    gen_starry()
+    gen_confused()
     
-    # We should also ensure old images are removed if they don't match the sequence format to avoid clutter
-    # Actually, we can just leave them if they loop well. But overwriting idle/speaking animations gives BMO new life!
     print("Finished generating faces!")
