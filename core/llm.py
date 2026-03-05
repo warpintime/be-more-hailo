@@ -8,9 +8,20 @@ from .search import search_web
 
 logger = logging.getLogger(__name__)
 
+# Keep at most this many messages (plus the system prompt) to avoid
+# unbounded memory growth on memory-constrained devices like a Pi.
+MAX_HISTORY_MESSAGES = 20
+
 class Brain:
     def __init__(self):
         self.history = [{"role": "system", "content": get_system_prompt()}]
+
+    def _trim_history(self):
+        """Keep the system prompt + the most recent MAX_HISTORY_MESSAGES messages."""
+        # history[0] is always the system prompt
+        non_system = self.history[1:]
+        if len(non_system) > MAX_HISTORY_MESSAGES:
+            self.history = [self.history[0]] + non_system[-MAX_HISTORY_MESSAGES:]
 
     def think(self, user_text: str) -> str:
         """
@@ -149,6 +160,7 @@ class Brain:
                             msg["content"] = user_text
                             break
 
+                self._trim_history()
                 return content
 
             else:
@@ -292,7 +304,8 @@ class Brain:
                             if msg.get("role") == "user" and msg.get("content", "").startswith("[LIVE DATA:"):
                                 msg["content"] = user_text
                                 break
-                        
+
+                    self._trim_history()
 
                 else:
                     logger.error(f"LLM Stream Error: {response.status_code} - {response.text}")

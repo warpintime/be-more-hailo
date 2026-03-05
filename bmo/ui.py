@@ -42,7 +42,8 @@ class BotGUI:
                     img = Image.open(os.path.join(path, f))
                     # Resize logic handled by PIL if needed (800x480)
                     self.animations[state].append(ImageTk.PhotoImage(img))
-                except: pass
+                except Exception:
+                    pass
 
     def set_state(self, state, msg=None):
         if msg: self.status.set(msg)

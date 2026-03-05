@@ -59,7 +59,7 @@ def pull_model(model_name):
                         print(f"\rStatus: {status} - {percent:.1f}%", end="")
                     else:
                         print(f"\rStatus: {status}", end="")
-                except:
+                except Exception:
                     pass
             print("\nDownload complete.")
             return True

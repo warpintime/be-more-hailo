@@ -37,6 +37,27 @@ app = FastAPI(title="BMO Web UI")
 # Ensure audio directory exists
 os.makedirs("static/audio", exist_ok=True)
 
+import time as _time
+AUDIO_DIR = os.path.join("static", "audio")
+AUDIO_MAX_AGE_SECONDS = 300  # 5 minutes
+
+def _cleanup_old_audio():
+    """Remove generated audio files older than AUDIO_MAX_AGE_SECONDS."""
+    try:
+        now = _time.time()
+        for f in os.listdir(AUDIO_DIR):
+            if not f.startswith("response_"):
+                continue
+            fpath = os.path.join(AUDIO_DIR, f)
+            if now - os.path.getmtime(fpath) > AUDIO_MAX_AGE_SECONDS:
+                os.remove(fpath)
+    except Exception as e:
+        logger.warning(f"Audio cleanup error: {e}")
+
+@app.on_event("startup")
+async def startup_cleanup():
+    _cleanup_old_audio()
+
 # Mount static files (for CSS, JS, images, and audio)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 app.mount("/faces", StaticFiles(directory="faces"), name="faces")
@@ -139,24 +160,27 @@ async def chat(request: ChatRequest, background_tasks: BackgroundTasks):
     if content.startswith("Error:") or content.startswith("Could not connect") or content.startswith("I'm having trouble"):
         return {"error": content, "history": brain.get_history()}
 
-    # Strip markdown formatting — the model sometimes emits bold/headers/lists
-    # that look like raw code in the chat UI and break TTS.
-    clean_content = clean_text_for_speech(content)
-    if not clean_content:
-        clean_content = content  # fallback to raw if cleaning strips everything
-        
+    # Clean text for TTS (applies pronunciation replacements like BMO->beemo).
+    # Keep the original content for display so the user sees "BMO" not "beemo".
+    tts_content = clean_text_for_speech(content)
+    if not tts_content:
+        tts_content = content  # fallback to raw if cleaning strips everything
+
     audio_url = None
-    
+
+    # Periodically clean up old audio files
+    background_tasks.add_task(_cleanup_old_audio)
+
     if play_on_hardware:
         # Play on Pi speakers in the background so we don't block the UI response
-        background_tasks.add_task(play_audio_on_hardware, clean_content)
+        background_tasks.add_task(play_audio_on_hardware, tts_content)
     else:
         # Generate a WAV file for the browser to play
         filename = f"response_{uuid.uuid4().hex[:8]}.wav"
-        audio_url = generate_audio_file(clean_content, filename)
-        
+        audio_url = generate_audio_file(tts_content, filename)
+
     return {
-        "response": clean_content, 
+        "response": content,
         "history": brain.get_history(),
         "audio_url": audio_url
     }
@@ -228,7 +252,7 @@ async def websocket_wakeword(websocket: WebSocket):
         logger.error(f"WebSocket error: {e}")
         try:
             await websocket.close()
-        except:
+        except Exception:
             pass
 
 @app.get("/api/status")
@@ -249,10 +273,13 @@ async def get_face(state: str):
     """
     Returns a list of image paths for a given state (idle, thinking, speaking, etc.)
     """
-    face_dir = os.path.join("faces", state)
-    if not os.path.exists(face_dir):
+    # Prevent path traversal by rejecting any path separators
+    if "/" in state or "\\" in state or ".." in state:
         return {"images": []}
-        
+    face_dir = os.path.join("faces", state)
+    if not os.path.exists(face_dir) or not os.path.isdir(face_dir):
+        return {"images": []}
+
     images = [f"/faces/{state}/{img}" for img in os.listdir(face_dir) if img.endswith(('.png', '.jpg', '.jpeg'))]
     return {"images": sorted(images)}
 
@@ -261,8 +288,11 @@ async def get_sounds(category: str):
     """
     Returns a list of sound paths for a given category (greeting_sounds, ack_sounds, thinking_sounds)
     """
+    # Prevent path traversal by rejecting any path separators
+    if "/" in category or "\\" in category or ".." in category:
+        return {"sounds": []}
     sound_dir = os.path.join("sounds", category)
-    if not os.path.exists(sound_dir):
+    if not os.path.exists(sound_dir) or not os.path.isdir(sound_dir):
         return {"sounds": []}
 
     sounds = [f"/sounds/{category}/{s}" for s in os.listdir(sound_dir) if s.endswith('.wav')]

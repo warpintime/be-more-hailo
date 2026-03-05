@@ -23,4 +23,4 @@ def test_chat(model_name):
     except Exception as e:
         print(f"Error: {e}")
 
-test_chat('llama3.2:3b')
+test_chat('qwen2.5-instruct:1.5b')

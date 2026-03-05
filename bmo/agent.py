@@ -6,7 +6,7 @@ import time
 class Bmo:
     def __init__(self, master_ui):
         self.ui = ui.BotGUI(master_ui)
-        self.ears = ears.Ears(callback=self.on_audio)
+        self.ears = ears.Ears()
         self.brain = brain.Brain(self.ui)
         self.voice = voice.Voice(self.ui)
         self.stop_event = threading.Event()

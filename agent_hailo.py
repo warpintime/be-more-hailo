@@ -259,7 +259,7 @@ class BotGUI:
 
     # --- AUDIO INPUT ---
     def wait_for_wakeword(self, oww):
-        """Bloch until wake word is heard"""
+        """Block until wake word is heard."""
         CHUNK = 1280
         # If openwakeword expects 16k, we must capture higher and downsample if needed
         # But let's try capturing at 16k directly first if the HW supports it, 
@@ -426,8 +426,8 @@ class BotGUI:
         self.set_state(BotStates.WARMUP, "Loading Ear...")
         try:
             oww = Model(wakeword_model_paths=[WAKE_WORD_MODEL])
-        except:
-            print("Failed to load wakeword model!")
+        except Exception as e:
+            print(f"Failed to load wakeword model: {e}")
             self.set_state(BotStates.ERROR, "Wake Word Error")
             return
 
@@ -474,7 +474,7 @@ class BotGUI:
                     if hasattr(self, 'thinking_audio_process') and self.thinking_audio_process:
                         try:
                             self.thinking_audio_process.terminate()
-                        except:
+                        except Exception:
                             pass
                         self.thinking_audio_process = None
                     continue
@@ -486,7 +486,7 @@ class BotGUI:
                 if hasattr(self, 'thinking_audio_process') and self.thinking_audio_process:
                     try:
                         self.thinking_audio_process.terminate()
-                    except:
+                    except Exception:
                         pass
                     self.thinking_audio_process = None
 
@@ -549,7 +549,7 @@ class BotGUI:
                             if hasattr(self, 'thinking_audio_process') and self.thinking_audio_process:
                                 try:
                                     self.thinking_audio_process.terminate()
-                                except:
+                                except Exception:
                                     pass
                                 self.thinking_audio_process = None
                             self.set_state(BotStates.SPEAKING, "Speaking...")
@@ -595,7 +595,7 @@ class BotGUI:
                         if hasattr(self, 'thinking_audio_process') and self.thinking_audio_process:
                             try:
                                 self.thinking_audio_process.terminate()
-                            except:
+                            except Exception:
                                 pass
                             self.thinking_audio_process = None
                         try:
