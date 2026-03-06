@@ -118,6 +118,7 @@ be-more-agent/
 ### Prerequisites
 
 - Raspberry Pi OS (64-bit, current stable)
+- `hailo-h10-all` installed — the setup script handles this, but if installing manually: `sudo apt install hailo-h10-all`
 - `hailo-ollama` installed and running — follow [Hailo's documentation](https://github.com/hailo-ai/hailo-ollama) for setup
 
 ### Automated install

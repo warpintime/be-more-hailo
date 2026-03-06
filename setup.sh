@@ -15,7 +15,8 @@ sudo apt update
 sudo apt install -y \
     python3-tk python3-venv libasound2-dev libportaudio2 libopenblas-dev \
     cmake build-essential git curl ffmpeg \
-    libcamera-apps python3-libcamera  # Camera support (rpicam-still / libcamera-still)
+    libcamera-apps python3-libcamera \
+    hailo-h10-all  # Hailo-10H PCIe driver, firmware, and runtime
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 2. Clone repository (if run via curl outside the repo)
