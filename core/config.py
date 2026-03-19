@@ -9,9 +9,13 @@ load_dotenv()
 # LLM Settings
 # To offload to your Linux server, change this to: "http://blackbox.clevercode.ts.net:11434/api/chat"
 # Make sure Ollama is running on the blackbox server and listening on 0.0.0.0
-LLM_URL = "http://127.0.0.1:8000/api/chat"
-LLM_MODEL = "qwen2.5-instruct:1.5b" # Native Hailo model for all queries
-FAST_LLM_MODEL = "qwen2.5-instruct:1.5b" # Unify models to prevent NPU swap crashing
+LLM_PROVIDER = os.getenv("LLM_PROVIDER", "ollama").strip().lower()
+if LLM_PROVIDER not in ("ollama", "gemini"):
+    LLM_PROVIDER = "ollama"
+
+LLM_URL = os.getenv("LLM_URL", "http://127.0.0.1:8000/api/chat")
+LLM_MODEL = os.getenv("LLM_MODEL", "qwen2.5-instruct:1.5b") # Native Hailo model for all queries
+FAST_LLM_MODEL = os.getenv("FAST_LLM_MODEL", LLM_MODEL) # Keep fast and main model in sync by default
 VISION_MODEL = "qwen2-vl-instruct:2b" # Legacy Ollama name (unused — VLM runs via HailoRT directly)
 
 # VLM (Vision Language Model) Settings — uses HailoRT Python API directly

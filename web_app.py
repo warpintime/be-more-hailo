@@ -16,7 +16,7 @@ import subprocess
 from core.llm import Brain
 from core.tts import play_audio_on_hardware, generate_audio_file, add_pronunciation, load_pronunciations, clean_text_for_speech
 from core.stt import transcribe_audio
-from core.config import LLM_URL, WAKE_WORD_MODEL, WAKE_WORD_THRESHOLD
+from core.config import LLM_PROVIDER, LLM_URL, GEMINI_API_KEY, WAKE_WORD_MODEL, WAKE_WORD_THRESHOLD
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -110,19 +110,26 @@ async def get_debug_info():
         },
         "logs": []
     }
-    
-    # Check Hailo/Ollama status
-    try:
-        # Extract base URL from LLM_URL (e.g., http://127.0.0.1:8000)
-        base_url = LLM_URL.split("/api/")[0]
-        response = requests.get(f"{base_url}/api/tags", timeout=2)
-        if response.status_code == 200:
-            info["hailo"]["status"] = "online"
+
+    # Check LLM status
+    if LLM_PROVIDER == "gemini":
+        if GEMINI_API_KEY:
+            info["hailo"]["status"] = "gemini-configured"
         else:
-            info["hailo"]["status"] = f"error ({response.status_code})"
-    except Exception as e:
-        info["hailo"]["status"] = "offline"
-        info["hailo"]["error"] = str(e)
+            info["hailo"]["status"] = "gemini-missing-key"
+            info["hailo"]["error"] = "GEMINI_API_KEY is not set"
+    else:
+        try:
+            # Extract base URL from LLM_URL (e.g., http://127.0.0.1:8000)
+            base_url = LLM_URL.split("/api/")[0]
+            response = requests.get(f"{base_url}/api/tags", timeout=2)
+            if response.status_code == 200:
+                info["hailo"]["status"] = "online"
+            else:
+                info["hailo"]["status"] = f"error ({response.status_code})"
+        except Exception as e:
+            info["hailo"]["status"] = "offline"
+            info["hailo"]["error"] = str(e)
         
     # Get recent logs from journalctl
     try:
@@ -257,7 +264,12 @@ async def websocket_wakeword(websocket: WebSocket):
 
 @app.get("/api/status")
 async def get_status():
-    """Check if the Hailo LLM server is reachable."""
+    """Check if the configured LLM provider is reachable."""
+    if LLM_PROVIDER == "gemini":
+        if GEMINI_API_KEY:
+            return {"status": "online"}
+        return {"status": "offline"}
+
     try:
         # Check the base Ollama URL (e.g., http://127.0.0.1:8000)
         base_url = LLM_URL.replace("/api/chat", "")

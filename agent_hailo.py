@@ -615,7 +615,7 @@ class BotGUI:
         import datetime
         import requests as http_requests
         from core.search import search_web
-        from core.config import LLM_URL, FAST_LLM_MODEL
+        from core.config import LLM_URL, FAST_LLM_MODEL, GEMINI_API_KEY
         
         # Topics BMO might wonder about — used as web search seeds
         search_topics = [
@@ -643,7 +643,10 @@ class BotGUI:
         ]
         
         def is_llm_reachable():
-            """Quick health check — ping the Ollama base URL before making a full LLM call."""
+            """Quick health check for the configured LLM provider."""
+            provider = self.brain._provider()
+            if provider == "gemini":
+                return bool(GEMINI_API_KEY)
             try:
                 base_url = LLM_URL.replace("/api/chat", "")
                 r = http_requests.get(base_url, timeout=5)
@@ -661,28 +664,21 @@ class BotGUI:
                 "Just muse to yourself in 1 sentence.\n\n"
                 f"Info: {search_result[:300]}"
             )
-            payload = {
-                "model": FAST_LLM_MODEL,
-                "messages": [
-                    {"role": "system", "content": "You are BMO, a cute little robot who muses to yourself."},
-                    {"role": "user", "content": thought_prompt},
-                ],
-                "stream": False,
-                "options": {
-                    "temperature": 0.7,
-                    "num_predict": 60,
-                }
-            }
+            messages = [
+                {"role": "system", "content": "You are BMO, a cute little robot who muses to yourself."},
+                {"role": "user", "content": thought_prompt},
+            ]
             try:
-                resp = http_requests.post(LLM_URL, json=payload, timeout=60)
-                if resp.status_code == 200:
-                    content = resp.json().get("message", {}).get("content", "").strip()
-                    # Filter out error-like responses the model might echo
-                    if content and "connect" not in content.lower() and "error" not in content.lower():
-                        return content[:200]
-                else:
-                    print(f"[SCREENSAVER] LLM returned status {resp.status_code}")
-            except http_requests.exceptions.RequestException as e:
+                content = self.brain._call_llm_once(
+                    messages,
+                    FAST_LLM_MODEL,
+                    temperature=0.7,
+                    max_tokens=60,
+                ).strip()
+                # Filter out error-like responses the model might echo
+                if content and "connect" not in content.lower() and "error" not in content.lower():
+                    return content[:200]
+            except Exception as e:
                 print(f"[SCREENSAVER] LLM request failed: {e}")
             return None
         

@@ -6,9 +6,24 @@ import re
 import json
 import urllib.parse
 import numpy as np
-from .config import LLM_URL, LLM_MODEL, FAST_LLM_MODEL, VISION_MODEL, VLM_HEF_PATH, get_system_prompt
+from .config import (
+    LLM_PROVIDER,
+    LLM_URL,
+    LLM_MODEL,
+    FAST_LLM_MODEL,
+    VISION_MODEL,
+    VLM_HEF_PATH,
+    GEMINI_API_KEY,
+    GEMINI_MODEL,
+    get_system_prompt,
+)
 from .tts import add_pronunciation
 from .search import search_web
+
+try:
+    import google.generativeai as genai
+except Exception:
+    genai = None
 
 logger = logging.getLogger(__name__)
 
@@ -123,6 +138,30 @@ def _strip_prompt_leakage(content: str) -> str:
     return content
 
 
+def _extract_gemini_text(response) -> str:
+    """Best-effort extraction of plain text from Gemini SDK responses."""
+    text = getattr(response, "text", "")
+    if text:
+        return text
+
+    parts = []
+    for candidate in getattr(response, "candidates", []) or []:
+        content = getattr(candidate, "content", None)
+        for part in getattr(content, "parts", []) or []:
+            part_text = getattr(part, "text", "")
+            if part_text:
+                parts.append(part_text)
+    return "".join(parts).strip()
+
+
+def _split_into_speak_chunks(text: str):
+    """Split generated text into sentence-ish chunks for TTS streaming compatibility."""
+    if not text:
+        return []
+    chunks = [c.strip() for c in re.split(r"(?<=[.!?])\s+|\n+", text) if c and c.strip()]
+    return chunks or [text.strip()]
+
+
 class Brain:
     def __init__(self):
         self.history = [{"role": "system", "content": get_system_prompt()}]
@@ -133,6 +172,78 @@ class Brain:
         non_system = self.history[1:]
         if len(non_system) > MAX_HISTORY_MESSAGES:
             self.history = [self.history[0]] + non_system[-MAX_HISTORY_MESSAGES:]
+
+    def _choose_model(self, user_text: str) -> str:
+        complex_keywords = [
+            "explain", "story", "how", "why", "code", "write", "create",
+            "analyze", "compare", "difference", "history", "long"
+        ]
+        words = user_text.lower().split()
+        if len(words) > 15 or any(kw in words for kw in complex_keywords):
+            return LLM_MODEL
+        return FAST_LLM_MODEL
+
+    def _provider(self) -> str:
+        provider = (LLM_PROVIDER or "ollama").strip().lower()
+        if provider not in ("ollama", "gemini"):
+            provider = "ollama"
+        return provider
+
+    def _call_gemini(self, messages, temperature=0.4, max_tokens=120) -> str:
+        if genai is None:
+            raise RuntimeError("Gemini SDK not available. Install google-generativeai.")
+        if not GEMINI_API_KEY:
+            raise RuntimeError("GEMINI_API_KEY is not set.")
+
+        genai.configure(api_key=GEMINI_API_KEY)
+
+        system_parts = []
+        contents = []
+        for msg in messages:
+            role = msg.get("role")
+            text = str(msg.get("content", ""))
+            if not text:
+                continue
+            if role == "system":
+                system_parts.append(text)
+            elif role == "assistant":
+                contents.append({"role": "model", "parts": [text]})
+            else:
+                contents.append({"role": "user", "parts": [text]})
+
+        model = genai.GenerativeModel(
+            model_name=GEMINI_MODEL,
+            system_instruction="\n".join(system_parts).strip() or None,
+        )
+        response = model.generate_content(
+            contents or [{"role": "user", "parts": [""]}],
+            generation_config={
+                "temperature": temperature,
+                "max_output_tokens": max_tokens,
+            },
+        )
+        return _extract_gemini_text(response)
+
+    def _call_ollama_once(self, messages, model_name, temperature=0.4, max_tokens=120) -> str:
+        payload = {
+            "model": model_name,
+            "messages": messages,
+            "stream": False,
+            "options": {
+                "temperature": temperature,
+                "num_predict": max_tokens,
+            },
+        }
+        response = requests.post(LLM_URL, json=payload, timeout=180)
+        if response.status_code != 200:
+            raise RuntimeError(f"LLM Error: {response.status_code} - {response.text}")
+        data = response.json()
+        return data.get("message", {}).get("content", "")
+
+    def _call_llm_once(self, messages, model_name, temperature=0.4, max_tokens=120) -> str:
+        if self._provider() == "gemini":
+            return self._call_gemini(messages, temperature=temperature, max_tokens=max_tokens)
+        return self._call_ollama_once(messages, model_name, temperature=temperature, max_tokens=max_tokens)
 
     def think(self, user_text: str) -> str:
         """
@@ -177,9 +288,7 @@ class Brain:
             try:
                 search_result = search_web(user_text)
                 if search_result and search_result not in ("SEARCH_EMPTY", "SEARCH_ERROR") and len(search_result) > 50:
-                    # Strip the verbose "SEARCH RESULTS for '...':" header from search.py
                     clean_result = re.sub(r"^SEARCH RESULTS for '.*?':\n?", "", search_result).strip()
-                    # Inject as a tight [LIVE DATA] block — clearer than the previous format
                     self.history[-1]["content"] = (
                         f"[LIVE DATA: {clean_result}] "
                         f"Using only the above live data, answer in one or two sentences as BMO: {user_text}"
@@ -188,113 +297,64 @@ class Brain:
             except Exception as e:
                 logger.warning(f"Pre-LLM web search failed: {e}")
 
-        # Simple heuristic to route to a faster model for simple chat
-        complex_keywords = ["explain", "story", "how", "why", "code", "write", "create", "analyze", "compare", "difference", "history", "long"]
-        words = user_text.lower().split()
-        
-        chosen_model = FAST_LLM_MODEL
-        if len(words) > 15 or any(kw in words for kw in complex_keywords):
-            chosen_model = LLM_MODEL
-
-        payload = {
-            "model": chosen_model,
-            "messages": self.history,
-            "stream": False,
-            "options": {
-                "temperature": 0.4,
-                "num_predict": 120,  # cap tokens to prevent runaway verbosity
-            }
-        }
+        chosen_model = self._choose_model(user_text)
 
         try:
-            logger.info(f"Sending request to LLM ({chosen_model}): {LLM_URL}")
-            response = requests.post(LLM_URL, json=payload, timeout=180)
-            
-            if response.status_code == 200:
-                data = response.json()
-                content = data.get("message", {}).get("content", "")
-                
-                # Check if the LLM outputted a JSON action (like search_web)
-                try:
-                    # Try to find JSON in the response (non-greedy)
-                    # Also replace smart quotes with standard quotes before parsing
-                    clean_content = content.replace('“', '"').replace('”', '"').replace('‘', "'").replace('’', "'")
-                    json_match = re.search(r'\{.*?\}', clean_content, re.DOTALL)
-                    if json_match:
-                        action_data = json.loads(json_match.group(0))
-                        
-                        if action_data.get("action") == "take_photo":
-                            logger.info("LLM requested to take a photo.")
-                            # Return the JSON string directly so the caller can handle the camera
-                            return json.dumps({"action": "take_photo"})
-                            
-                        elif action_data.get("action") == "search_web":
-                            query = action_data.get("query", "")
-                            logger.info(f"LLM requested web search for: {query}")
-                            
-                            # Perform the search
-                            search_result = search_web(query)
-                            
-                            # Feed the result back to the LLM to summarize
-                            summary_prompt = [
-                                {"role": "system", "content": "Summarize this search result in one short, conversational sentence as BMO. Do not use markdown."},
-                                {"role": "user", "content": f"RESULT: {search_result}\nUser Question: {user_text}"}
-                            ]
-                            
-                            summary_payload = {
-                                "model": FAST_LLM_MODEL,
-                                "messages": summary_prompt,
-                                "stream": False
-                            }
-                            
-                            summary_response = requests.post(LLM_URL, json=summary_payload, timeout=180)
-                            if summary_response.status_code == 200:
-                                content = summary_response.json().get("message", {}).get("content", "")
-                            else:
-                                content = "I tried to search the web, but my brain got confused reading the results."
-                except json.JSONDecodeError:
-                    pass # Not valid JSON, just treat as normal text
-                
-                # Check for pronunciation learning tag
-                pronounce_match = re.search(r'!PRONOUNCE:\s*([a-zA-Z0-9_-]+)\s*=\s*([a-zA-Z0-9_-]+)', content, re.IGNORECASE)
-                if pronounce_match:
-                    word = pronounce_match.group(1).strip()
-                    phonetic = pronounce_match.group(2).strip()
-                    logger.info(f"Learned new pronunciation from LLM: {word} -> {phonetic}")
-                    add_pronunciation(word, phonetic)
-                    # Remove the tag from the spoken content
-                    content = re.sub(r'!PRONOUNCE:.*', '', content, flags=re.IGNORECASE).strip()
+            provider = self._provider()
+            logger.info(f"Sending request to LLM ({provider}/{chosen_model})")
+            content = self._call_llm_once(self.history, chosen_model, temperature=0.4, max_tokens=120)
 
-                # Strip any system prompt leakage from the response
-                content = _strip_prompt_leakage(content)
+            try:
+                clean_content = content.replace('“', '"').replace('”', '"').replace('‘', "'").replace('’', "'")
+                json_match = re.search(r'\{.*?\}', clean_content, re.DOTALL)
+                if json_match:
+                    action_data = json.loads(json_match.group(0))
 
-                # Ensure BMO is spelled correctly in text responses
-                content = re.sub(r'\bBeemo\b', 'BMO', content, flags=re.IGNORECASE)
+                    if action_data.get("action") == "take_photo":
+                        logger.info("LLM requested to take a photo.")
+                        return json.dumps({"action": "take_photo"})
 
-                # Fallback if filtering left nothing useful
-                if not content.strip():
-                    content = "BMO is here! How can I help?"
+                    elif action_data.get("action") == "search_web":
+                        query = action_data.get("query", "")
+                        logger.info(f"LLM requested web search for: {query}")
+                        search_result = search_web(query)
 
-                self.history.append({"role": "assistant", "content": content})
+                        summary_prompt = [
+                            {"role": "system", "content": "Summarize this search result in one short, conversational sentence as BMO. Do not use markdown."},
+                            {"role": "user", "content": f"RESULT: {search_result}\\nUser Question: {user_text}"}
+                        ]
+                        content = self._call_llm_once(summary_prompt, FAST_LLM_MODEL, temperature=0.4, max_tokens=120)
+            except json.JSONDecodeError:
+                pass
 
-                # Clean injected search context from history so it doesn't
-                # accumulate and confuse the model on future turns.
-                if search_injected:
-                    for msg in reversed(self.history):
-                        if msg.get("role") == "user" and msg.get("content", "").startswith("[LIVE DATA:"):
-                            msg["content"] = user_text
-                            break
+            pronounce_match = re.search(r'!PRONOUNCE:\s*([a-zA-Z0-9_-]+)\s*=\s*([a-zA-Z0-9_-]+)', content, re.IGNORECASE)
+            if pronounce_match:
+                word = pronounce_match.group(1).strip()
+                phonetic = pronounce_match.group(2).strip()
+                logger.info(f"Learned new pronunciation from LLM: {word} -> {phonetic}")
+                add_pronunciation(word, phonetic)
+                content = re.sub(r'!PRONOUNCE:.*', '', content, flags=re.IGNORECASE).strip()
 
-                self._trim_history()
-                return content
+            content = _strip_prompt_leakage(content)
+            content = re.sub(r'\bBeemo\b', 'BMO', content, flags=re.IGNORECASE)
 
-            else:
-                logger.error(f"LLM Error: {response.status_code} - {response.text}")
-                return f"Error: {response.status_code}"
-                
+            if not content.strip():
+                content = "BMO is here! How can I help?"
+
+            self.history.append({"role": "assistant", "content": content})
+
+            if search_injected:
+                for msg in reversed(self.history):
+                    if msg.get("role") == "user" and msg.get("content", "").startswith("[LIVE DATA:"):
+                        msg["content"] = user_text
+                        break
+
+            self._trim_history()
+            return content
+
         except requests.exceptions.RequestException as e:
             logger.error(f"Connection Error: {e}")
-            return "Could not connect to my brain. Is the Hailo server running?"
+            return "Could not connect to my brain. Is the LLM server running?"
         except Exception as e:
             logger.error(f"Brain Exception: {e}")
             return "I'm having trouble thinking right now."
@@ -366,87 +426,80 @@ class Brain:
                 logger.warning(f"Pre-LLM web search failed: {e}")
 
         # Simple heuristic to route to a faster model for simple chat
-        complex_keywords = ["explain", "story", "how", "why", "code", "write", "create", "analyze", "compare", "difference", "history", "long"]
-        words = user_text.lower().split()
-        
-        chosen_model = FAST_LLM_MODEL
-        if len(words) > 15 or any(kw in words for kw in complex_keywords):
-            chosen_model = LLM_MODEL
-
-
-
-        payload = {
-            "model": chosen_model,
-            "messages": self.history,
-            "stream": True,
-            "options": {
-                "temperature": 0.4,
-                "num_predict": 120,  # cap tokens to prevent runaway verbosity
-            }
-        }
+        chosen_model = self._choose_model(user_text)
 
         full_content = ""
         buffer = ""
-        
+
         try:
-            logger.info(f"Stream request to LLM ({chosen_model}): {LLM_URL}")
-            with requests.post(LLM_URL, json=payload, stream=True, timeout=180) as response:
-                if response.status_code == 200:
-                    for line in response.iter_lines():
-                        if line:
-                            try:
-                                data = json.loads(line)
-                                chunk = data.get("message", {}).get("content", "")
-                                if not chunk:
-                                    continue
-                                    
-                                # Replace smart quotes
-                                chunk = chunk.replace('“', '"').replace('”', '"').replace('‘', "'").replace('’', "'")
-                                
-                                buffer += chunk
-                                full_content += chunk
-                                
-                                # If buffer ends with punctuation or newline, yield it
-                                if any(buffer.endswith(punc) for punc in ['.', '!', '?', '\n']) or "\n\n" in buffer:
-                                    # Strip system prompt leakage
-                                    cleaned = _strip_prompt_leakage(buffer)
-                                    # Ensure BMO spelling before yielding
-                                    out_chunk = re.sub(r'\bBeemo\b', 'BMO', cleaned, flags=re.IGNORECASE)
-                                    if out_chunk.strip():
-                                        yield out_chunk
-                                    buffer = ""
-                                    
-                            except json.JSONDecodeError:
-                                pass
-                                
-                    # Yield any remaining buffer
-                    if buffer.strip():
-                        cleaned = _strip_prompt_leakage(buffer)
-                        out_chunk = re.sub(r'\bBeemo\b', 'BMO', cleaned, flags=re.IGNORECASE)
-                        if out_chunk.strip():
-                            yield out_chunk
-                        
-                    # Handle json actions at the very end if applicable
-                    json_match = re.search(r'\{.*?\}', full_content, re.DOTALL)
-                    if json_match and "action" in json_match.group(0):
-                        # For advanced tool use we won't yield the json action to TTS
-                        pass 
-                    
-                    self.history.append({"role": "assistant", "content": full_content})
+            provider = self._provider()
+            logger.info(f"Stream request to LLM ({provider}/{chosen_model})")
 
-                    # Clean injected search context from history so it doesn't
-                    # accumulate and confuse the model on future turns.
-                    if search_injected:
-                        for msg in reversed(self.history):
-                            if msg.get("role") == "user" and msg.get("content", "").startswith("[LIVE DATA:"):
-                                msg["content"] = user_text
-                                break
+            if provider == "gemini":
+                full_content = self._call_llm_once(self.history, chosen_model, temperature=0.4, max_tokens=120)
+                for chunk in _split_into_speak_chunks(full_content):
+                    cleaned = _strip_prompt_leakage(chunk)
+                    out_chunk = re.sub(r'\bBeemo\b', 'BMO', cleaned, flags=re.IGNORECASE)
+                    if out_chunk.strip():
+                        yield out_chunk
+            else:
+                payload = {
+                    "model": chosen_model,
+                    "messages": self.history,
+                    "stream": True,
+                    "options": {
+                        "temperature": 0.4,
+                        "num_predict": 120,
+                    }
+                }
 
-                    self._trim_history()
+                with requests.post(LLM_URL, json=payload, stream=True, timeout=180) as response:
+                    if response.status_code == 200:
+                        for line in response.iter_lines():
+                            if line:
+                                try:
+                                    data = json.loads(line)
+                                    chunk = data.get("message", {}).get("content", "")
+                                    if not chunk:
+                                        continue
 
-                else:
-                    logger.error(f"LLM Stream Error: {response.status_code} - {response.text}")
-                    yield "I'm having trouble thinking."
+                                    chunk = chunk.replace('“', '"').replace('”', '"').replace('‘', "'").replace('’', "'")
+                                    buffer += chunk
+                                    full_content += chunk
+
+                                    if any(buffer.endswith(punc) for punc in ['.', '!', '?', '\n']) or "\n\n" in buffer:
+                                        cleaned = _strip_prompt_leakage(buffer)
+                                        out_chunk = re.sub(r'\bBeemo\b', 'BMO', cleaned, flags=re.IGNORECASE)
+                                        if out_chunk.strip():
+                                            yield out_chunk
+                                        buffer = ""
+                                except json.JSONDecodeError:
+                                    pass
+
+                        if buffer.strip():
+                            cleaned = _strip_prompt_leakage(buffer)
+                            out_chunk = re.sub(r'\bBeemo\b', 'BMO', cleaned, flags=re.IGNORECASE)
+                            if out_chunk.strip():
+                                yield out_chunk
+
+                        json_match = re.search(r'\{.*?\}', full_content, re.DOTALL)
+                        if json_match and "action" in json_match.group(0):
+                            pass
+                    else:
+                        logger.error(f"LLM Stream Error: {response.status_code} - {response.text}")
+                        yield "I'm having trouble thinking."
+                        return
+
+            self.history.append({"role": "assistant", "content": full_content})
+
+            if search_injected:
+                for msg in reversed(self.history):
+                    if msg.get("role") == "user" and msg.get("content", "").startswith("[LIVE DATA:"):
+                        msg["content"] = user_text
+                        break
+
+            self._trim_history()
+
         except requests.exceptions.RequestException as e:
             logger.error(f"Connection Error: {e}")
             yield "Could not connect to my brain."

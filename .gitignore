@@ -7,6 +7,8 @@ __pycache__/
 env/
 venv/
 .env
+.env.*
+!.env.example
 
 # --- Large Models & Binaries (Auto-downloaded) ---
 # Ignore the Piper TTS folder (it's huge and OS-specific)
@@ -56,3 +58,6 @@ pull.json
 setup_remote.sh
 tmp_hailo_whisper/
 whisper.cpp/build/
+
+# --- iOS Local Secrets ---
+**/Secrets.xcconfig
