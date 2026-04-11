@@ -1,18 +1,14 @@
-import base64
-import os
 import requests
 import logging
 import re
 import json
 import urllib.parse
-import numpy as np
 from .config import (
     LLM_PROVIDER,
     LLM_URL,
     LLM_MODEL,
     FAST_LLM_MODEL,
     VISION_MODEL,
-    VLM_HEF_PATH,
     GEMINI_API_KEY,
     GEMINI_MODEL,
     get_system_prompt,
@@ -26,63 +22,6 @@ except Exception:
     genai = None
 
 logger = logging.getLogger(__name__)
-
-# --------------------------------------------------------------------------- #
-#  Hailo VLM (Vision Language Model) singleton
-# --------------------------------------------------------------------------- #
-# Lazy-loaded on first image analysis request.  Kept alive so subsequent
-# requests don't pay the ~3 s init cost again.
-_vlm_instance = None
-_vlm_vdevice = None
-
-
-def _get_vlm():
-    """Return a (vlm, frame_shape, frame_dtype) tuple, initialising on first call."""
-    global _vlm_instance, _vlm_vdevice
-
-    if _vlm_instance is not None:
-        shape = _vlm_instance.input_frame_shape()
-        dtype = _vlm_instance.input_frame_format_type()
-        return _vlm_instance, shape, dtype
-
-    hef = VLM_HEF_PATH
-    if not os.path.isabs(hef):
-        # Resolve relative to project root (where the scripts live)
-        hef = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), hef)
-
-    if not os.path.exists(hef):
-        raise FileNotFoundError(f"VLM HEF not found at {hef}. Run setup.sh to download it.")
-
-    from hailo_platform import VDevice
-    from hailo_platform.genai import VLM
-
-    logger.info(f"Initialising Hailo VLM from {hef} ...")
-    _vlm_vdevice = VDevice()
-    _vlm_instance = VLM(_vlm_vdevice, hef)
-    shape = _vlm_instance.input_frame_shape()
-    dtype = _vlm_instance.input_frame_format_type()
-    logger.info(f"VLM ready — frame shape {shape}, dtype {dtype}")
-    return _vlm_instance, shape, dtype
-
-
-def _decode_image_to_frame(image_b64: str, target_shape, target_dtype=np.uint8):
-    """Decode a base64 JPEG/PNG into a numpy array matching VLM input requirements."""
-    import cv2
-
-    raw = base64.b64decode(image_b64)
-    arr = np.frombuffer(raw, dtype=np.uint8)
-    img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
-    if img is None:
-        raise ValueError("Failed to decode image from base64 data")
-
-    # OpenCV loads BGR; VLM expects RGB
-    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-
-    h, w, c = target_shape
-    if img.shape[0] != h or img.shape[1] != w:
-        img = cv2.resize(img, (w, h), interpolation=cv2.INTER_LINEAR)
-
-    return img.astype(target_dtype)
 
 # Keep at most this many messages (plus the system prompt) to avoid
 # unbounded memory growth on memory-constrained devices like a Pi.
@@ -152,6 +91,11 @@ def _extract_gemini_text(response) -> str:
             if part_text:
                 parts.append(part_text)
     return "".join(parts).strip()
+
+
+def _extract_ollama_text(response_json) -> str:
+    """Best-effort extraction of plain text from Ollama chat responses."""
+    return str(response_json.get("message", {}).get("content", "")).strip()
 
 
 def _split_into_speak_chunks(text: str):
@@ -229,6 +173,7 @@ class Brain:
             "model": model_name,
             "messages": messages,
             "stream": False,
+            "think": False,
             "options": {
                 "temperature": temperature,
                 "num_predict": max_tokens,
@@ -239,6 +184,45 @@ class Brain:
             raise RuntimeError(f"LLM Error: {response.status_code} - {response.text}")
         data = response.json()
         return data.get("message", {}).get("content", "")
+
+    def _vision_model_name(self) -> str:
+        return (VISION_MODEL or LLM_MODEL).strip()
+
+    def _call_ollama_vision_once(self, image_base64: str, user_text: str, temperature=0.4, max_tokens=150) -> str:
+        model_name = self._vision_model_name()
+        if not model_name:
+            raise RuntimeError("Vision model is not configured.")
+
+        payload = {
+            "model": model_name,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": (
+                        "You are BMO, a helpful robot assistant. "
+                        "Describe what you see concisely and conversationally in English."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": user_text or "What do you see in this image?",
+                    "images": [image_base64],
+                },
+            ],
+            "stream": False,
+            "think": False,
+            "options": {
+                "temperature": temperature,
+                "num_predict": max_tokens,
+            },
+        }
+
+        response = requests.post(LLM_URL, json=payload, timeout=300)
+        if response.status_code != 200:
+            detail = response.text.strip()
+            raise RuntimeError(f"Ollama vision error ({response.status_code}): {detail}")
+
+        return _extract_ollama_text(response.json())
 
     def _call_llm_once(self, messages, model_name, temperature=0.4, max_tokens=120) -> str:
         if self._provider() == "gemini":
@@ -447,6 +431,7 @@ class Brain:
                     "model": chosen_model,
                     "messages": self.history,
                     "stream": True,
+                    "think": False,
                     "options": {
                         "temperature": 0.4,
                         "num_predict": 120,
@@ -517,9 +502,9 @@ class Brain:
 
     def analyze_image(self, image_base64: str, user_text: str) -> str:
         """
-        Analyse an image using the Hailo VLM (Qwen2-VL-2B) running directly
-        on the NPU via the HailoRT Python API.  Falls back to a polite error
-        message if the HEF isn't available or the hardware can't be reached.
+        Analyse an image using an Ollama vision model.
+        The image is captured in the browser, sent as base64, and forwarded
+        to Ollama via the chat API `images` field.
         """
         # Strip data URI prefix if present (browser sends "data:image/jpeg;base64,...")
         if "," in image_base64:
@@ -530,46 +515,43 @@ class Brain:
         self.history.append({"role": "user", "content": user_text})
 
         try:
-            vlm, frame_shape, frame_dtype = _get_vlm()
+            if self._provider() != "ollama":
+                return "Vision is currently only wired up for Ollama in this build."
 
-            # Decode the base64 image into a numpy frame the VLM expects
-            frame = _decode_image_to_frame(image_base64, frame_shape, frame_dtype)
-
-            # Build the structured prompt expected by the Qwen2-VL model
-            prompt = [
-                {"role": "system", "content": [
-                    {"type": "text", "text": "You are BMO, a helpful robot assistant. Describe what you see concisely and conversationally in English."}
-                ]},
-                {"role": "user", "content": [
-                    {"type": "image"},
-                    {"type": "text", "text": user_text or "What do you see in this image?"}
-                ]}
-            ]
-
-            logger.info("Running VLM inference on Hailo NPU ...")
-            vlm.clear_context()
-            content = vlm.generate_all(
-                prompt=prompt,
-                frames=[frame],
-                max_generated_tokens=150,
-                temperature=0.4,
-            )
+            vision_model = self._vision_model_name()
+            logger.info(f"Running vision inference via Ollama ({vision_model}) ...")
+            content = self._call_ollama_vision_once(image_base64, user_text, temperature=0.4, max_tokens=150)
 
             # Clean up any smart quotes, stop tokens, or stray formatting
             content = content.replace('\u201c', '"').replace('\u201d', '"')
             content = content.replace('\u2018', "'").replace('\u2019', "'")
             for tok in ("<|im_end|>", "<|endoftext|>", "<|im_start|>"):
                 content = content.replace(tok, "")
+            content = _strip_prompt_leakage(content)
+            content = re.sub(r'\bBeemo\b', 'BMO', content, flags=re.IGNORECASE)
             content = content.strip()
 
-            logger.info(f"VLM response ({len(content)} chars): {content[:120]}...")
+            if not content:
+                content = "BMO looked at the photo, but didn't get a clear answer."
+
+            logger.info(f"Vision response ({len(content)} chars): {content[:120]}...")
 
             self.history.append({"role": "assistant", "content": content})
+            self._trim_history()
             return content
 
-        except FileNotFoundError as e:
-            logger.warning(f"VLM HEF not found: {e}")
-            return "BMO's vision model isn't installed yet. Run setup.sh to download it!"
+        except RuntimeError as e:
+            detail = str(e)
+            logger.warning(f"Vision runtime error: {detail}")
+            if "does not support image" in detail.lower() or "vision" in detail.lower() or "image" in detail.lower():
+                return (
+                    f"The Ollama model '{self._vision_model_name()}' doesn't appear to support vision yet. "
+                    "Set VISION_MODEL to a vision-capable Ollama model and try again."
+                )
+            return "BMO tried to look at the photo, but the vision model is not ready yet."
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Vision connection error: {e}")
+            return "BMO couldn't reach the vision model right now."
         except Exception as e:
-            logger.error(f"VLM Exception: {e}", exc_info=True)
+            logger.error(f"Vision exception: {e}", exc_info=True)
             return "I tried to look, but my eyes aren't working right now."

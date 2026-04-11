@@ -3,9 +3,16 @@
 
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="theme-color" content="#54c8b6">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="BMO">
     <title>BMO is Online!</title>
     <link rel="icon" type="image/png" href="/favicon.png">
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+    <link rel="manifest" href="/manifest.webmanifest">
 
     <!-- Include Marked.js for Markdown parsing -->
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
@@ -13,39 +20,107 @@
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
 
+        :root {
+            --sky-blue: #60a5fa;
+            --bmo-teal: #54c8b6;
+            --safe-top: max(12px, env(safe-area-inset-top));
+            --safe-right: max(12px, env(safe-area-inset-right));
+            --safe-bottom: max(12px, env(safe-area-inset-bottom));
+            --safe-left: max(12px, env(safe-area-inset-left));
+        }
+
+        html {
+            height: 100%;
+            background-color: var(--sky-blue);
+        }
+
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background-color: #60a5fa;
+            background-color: var(--sky-blue);
             /* Adventure Time Sky Blue */
             background-image: radial-gradient(#ffffff 20%, transparent 21%), radial-gradient(#ffffff 20%, transparent 21%);
             background-size: 80px 80px;
             background-position: 0 0, 40px 40px;
             color: #111;
             margin: 0;
-            padding: 0;
+            padding: var(--safe-top) var(--safe-right) var(--safe-bottom) var(--safe-left);
+            box-sizing: border-box;
             display: flex;
             flex-direction: column;
-            height: 100vh;
+            min-height: 100vh;
+            min-height: 100dvh;
+            height: calc(var(--app-height, 1vh) * 100);
+            overflow: hidden;
         }
 
         #header {
-            background-color: #54c8b6;
+            background-color: var(--bmo-teal);
             /* True BMO Teal */
             color: #111;
             padding: 8px 15px;
             display: flex;
             align-items: center;
+            gap: 12px;
             font-family: 'Press Start 2P', monospace;
             font-size: 0.7em;
             border-bottom: 4px solid #111;
             box-shadow: 0 4px 0 rgba(0, 0, 0, 0.2);
             z-index: 10;
+            border-radius: 18px 18px 0 0;
+        }
+
+        #header-controls {
+            flex: 1;
+            display: flex;
+            justify-content: flex-end;
+            align-items: center;
+            gap: 5px;
+            font-size: 0.8em;
+            font-weight: normal;
+            flex-wrap: wrap;
+        }
+
+        .header-chip {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            background: rgba(255, 255, 255, 0.5);
+            padding: 4px 8px;
+            border-radius: 8px;
+            border: 2px solid #111;
+            box-shadow: 2px 2px 0px rgba(0, 0, 0, 0.1);
+        }
+
+        .header-chip input {
+            cursor: pointer;
+            margin: 0;
+        }
+
+        .disabled-control {
+            opacity: 0.55;
+        }
+
+        .install-hint {
+            display: none;
+            background: rgba(255, 255, 255, 0.75);
+            border: 3px solid #111;
+            border-top: none;
+            padding: 10px 14px;
+            font-size: 0.85rem;
+            font-weight: 700;
+            line-height: 1.4;
+            box-shadow: 0 4px 0 rgba(0, 0, 0, 0.15);
+        }
+
+        .install-hint.visible {
+            display: block;
         }
 
         #main-container {
             display: flex;
             flex: 1;
             overflow: hidden;
+            min-height: 0;
         }
 
         #face-container {
@@ -278,6 +353,7 @@
             flex-direction: column;
             background-color: #fbf8cc;
             /* Light pastel background */
+            min-height: 0;
         }
 
         #chat-history {
@@ -289,6 +365,8 @@
             gap: 15px;
             background-image: linear-gradient(#e5e5e5 1px, transparent 1px);
             background-size: 100% 30px;
+            -webkit-overflow-scrolling: touch;
+            overscroll-behavior: contain;
         }
 
         .message {
@@ -377,6 +455,7 @@
             display: flex;
             gap: 10px;
             flex-wrap: wrap;
+            padding-bottom: calc(20px + env(safe-area-inset-bottom));
         }
 
         #user-input {
@@ -408,6 +487,7 @@
             font-size: 0.8em;
             box-shadow: 4px 4px 0px rgba(0, 0, 0, 0.2);
             transition: transform 0.1s, box-shadow 0.1s;
+            min-height: 50px;
         }
 
         #send-btn:hover {
@@ -441,6 +521,7 @@
             width: 50px;
             height: 50px;
             box-shadow: 3px 3px 0px rgba(0, 0, 0, 0.2);
+            flex-shrink: 0;
         }
 
         #mic-btn:hover {
@@ -595,15 +676,24 @@
         @media (max-width: 768px) {
             #header {
                 flex-direction: column;
-                gap: 5px;
+                align-items: stretch;
+                gap: 8px;
                 padding: 10px;
                 font-size: 0.7em;
             }
 
-            #header>div {
+            #header-title {
                 width: 100%;
-                justify-content: center !important;
-                flex-wrap: wrap;
+                text-align: center;
+                line-height: 1.5;
+            }
+
+            #header-controls {
+                width: 100%;
+                justify-content: center;
+                gap: 8px;
+                overflow-x: auto;
+                padding-bottom: 2px;
             }
 
             #main-container {
@@ -613,24 +703,89 @@
             #face-container {
                 border-right: none;
                 border-bottom: 4px solid #111;
-                padding: 20px 0;
-                min-height: 50vh;
+                padding: 14px 0;
+                min-height: 38vh;
             }
 
             .bmo-body {
-                transform: scale(0.8);
-                transform-origin: top center;
-                margin-bottom: -90px;
-                /* Compensate for scale */
+                width: min(88vw, 340px);
+                height: auto;
+                aspect-ratio: 320 / 450;
+                transform: none;
+                margin-bottom: 0;
+                padding: 16px;
+            }
+
+            .bmo-screen-container {
+                height: auto;
+                aspect-ratio: 1.4 / 1;
             }
 
             #chat-container {
-                height: 50vh;
+                height: auto;
+                min-height: 0;
                 border-left: none;
             }
 
             .message {
-                max-width: 90%;
+                max-width: 92%;
+                font-size: 0.96em;
+            }
+
+            #chat-history {
+                padding: 14px;
+                gap: 12px;
+            }
+
+            #input-container {
+                display: grid;
+                grid-template-columns: 56px minmax(0, 1fr) auto;
+                align-items: center;
+                padding: 14px;
+                gap: 10px;
+            }
+
+            #user-input {
+                min-width: 0;
+                height: 56px;
+            }
+
+            #mic-btn {
+                width: 56px;
+                height: 56px;
+                font-size: 1.3em;
+            }
+
+            #send-btn {
+                height: 56px;
+                padding: 0 18px;
+            }
+
+            .modal-content {
+                width: min(92vw, 420px);
+            }
+        }
+
+        @media (max-width: 480px) {
+            #header {
+                padding: 10px 12px;
+            }
+
+            #face-container {
+                min-height: 34vh;
+            }
+
+            #chat-history {
+                background-size: 100% 24px;
+            }
+
+            #input-container {
+                grid-template-columns: 56px minmax(0, 1fr);
+            }
+
+            #send-btn {
+                grid-column: 1 / -1;
+                width: 100%;
             }
         }
     </style>
@@ -669,33 +824,28 @@
     </div>
 
     <div id="header">
-        <div style="flex: 1; text-align: center; text-shadow: 2px 2px 0px rgba(255,255,255,0.5);">
+        <div id="header-title" style="flex: 1; text-align: center; text-shadow: 2px 2px 0px rgba(255,255,255,0.5);">
             🎮 BMO is Online! 🎮
         </div>
-        <div
-            style="flex: 1; display: flex; justify-content: flex-end; align-items: center; gap: 5px; font-size: 0.8em; font-weight: normal; flex-wrap: wrap;">
+        <div id="header-controls">
             <button class="btn btn-secondary" onclick="openDebugModal()" style="padding: 4px 8px; font-size: 0.8em;">🛠️
                 Debug</button>
             <button class="btn btn-secondary" onclick="openPronunciationModal()"
                 style="padding: 4px 8px; font-size: 0.8em;">🗣️ Fix Pronunciation</button>
-            <div id="hailo-status"
-                style="display: flex; align-items: center; gap: 5px; background: rgba(255,255,255,0.5); padding: 4px 8px; border-radius: 8px; border: 2px solid #111; box-shadow: 2px 2px 0px rgba(0,0,0,0.1);">
+            <div id="hailo-status" class="header-chip">
                 <div id="status-dot"
                     style="width: 6px; height: 6px; border-radius: 50%; background-color: gray; transition: all 0.3s; border: 1px solid #111;">
                 </div>
                 <span id="status-text">LLM: Checking...</span>
             </div>
-            <label for="hands-free-toggle"
-                style="cursor: pointer; display: flex; align-items: center; gap: 3px; background: rgba(255,255,255,0.5); padding: 4px 8px; border-radius: 8px; border: 2px solid #111; box-shadow: 2px 2px 0px rgba(0,0,0,0.1);">
-                <input type="checkbox" id="hands-free-toggle" style="cursor: pointer; margin: 0;">
+            <label for="hands-free-toggle" id="hands-free-label" class="header-chip" style="cursor: pointer;">
+                <input type="checkbox" id="hands-free-toggle">
                 Hands-Free
             </label>
-            <label for="audio-toggle"
-                style="cursor: pointer; display: flex; align-items: center; gap: 3px; background: rgba(255,255,255,0.5); padding: 4px 8px; border-radius: 8px; border: 2px solid #111; box-shadow: 2px 2px 0px rgba(0,0,0,0.1);">
-                <input type="checkbox" id="audio-toggle" style="cursor: pointer; margin: 0;">
-                Pi Audio
-            </label>
         </div>
+    </div>
+    <div id="install-hint" class="install-hint" hidden>
+        Install this web app from your browser menu using Add to Home Screen.
     </div>
 
     <div id="main-container">
@@ -758,7 +908,10 @@
         const sendBtn = document.getElementById('send-btn');
         const micBtn = document.getElementById('mic-btn');
         const bmoFace = document.getElementById('bmo-face');
-        const audioToggle = document.getElementById('audio-toggle');
+        const handsFreeToggle = document.getElementById('hands-free-toggle');
+        const handsFreeLabel = document.getElementById('hands-free-label');
+        const installHint = document.getElementById('install-hint');
+        const playOnHardware = false;
 
         let conversationHistory = [];
         let currentAnimation = null;
@@ -798,6 +951,8 @@
         let mediaRecorder;
         let audioChunks = [];
         let isRecording = false;
+        let currentRecordingMimeType = '';
+        let currentRecordingExtension = 'webm';
 
         // Screensaver state
         let screensaverTimeout = null;
@@ -808,6 +963,93 @@
             'cheeky', 'dizzy', 'confused',
             'daydream', 'bored', 'jamming', 'curious'
         ];
+
+        function setAppHeight() {
+            document.documentElement.style.setProperty('--app-height', `${window.innerHeight * 0.01}px`);
+        }
+
+        function usesManualInstallFlow() {
+            return /iphone|ipad|ipod/i.test(navigator.userAgent)
+                || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+        }
+
+        function isStandaloneMode() {
+            return window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+        }
+
+        function showInstallHintIfNeeded() {
+            if (usesManualInstallFlow() && !isStandaloneMode()) {
+                installHint.hidden = false;
+                installHint.classList.add('visible');
+                return;
+            }
+            installHint.hidden = true;
+            installHint.classList.remove('visible');
+        }
+
+        function registerServiceWorker() {
+            if (!('serviceWorker' in navigator)) {
+                return;
+            }
+            navigator.serviceWorker.register('/service-worker.js').catch((error) => {
+                console.warn('Service worker registration failed:', error);
+            });
+        }
+
+        function restorePreferences() {
+            handsFreeToggle.checked = localStorage.getItem('bmo.hands_free') === 'true';
+        }
+
+        function persistTogglePreference(key, value) {
+            localStorage.setItem(key, value ? 'true' : 'false');
+        }
+
+        function disableHandsFree(message) {
+            handsFreeToggle.checked = false;
+            handsFreeToggle.disabled = true;
+            handsFreeLabel.classList.add('disabled-control');
+            handsFreeLabel.title = message;
+            persistTogglePreference('bmo.hands_free', false);
+        }
+
+        function getExtensionForMimeType(mimeType) {
+            const lowered = (mimeType || '').toLowerCase();
+            if (lowered.includes('mp4') || lowered.includes('m4a')) return 'mp4';
+            if (lowered.includes('mpeg')) return 'mp3';
+            if (lowered.includes('ogg')) return 'ogg';
+            if (lowered.includes('wav')) return 'wav';
+            return 'webm';
+        }
+
+        function getRecordingConfig() {
+            if (typeof MediaRecorder === 'undefined') {
+                return null;
+            }
+
+            const candidates = [
+                { mimeType: 'audio/webm;codecs=opus', extension: 'webm' },
+                { mimeType: 'audio/webm', extension: 'webm' },
+                { mimeType: 'audio/mp4;codecs=mp4a.40.2', extension: 'mp4' },
+                { mimeType: 'audio/mp4', extension: 'mp4' },
+                { mimeType: 'audio/ogg;codecs=opus', extension: 'ogg' }
+            ];
+
+            if (typeof MediaRecorder.isTypeSupported !== 'function') {
+                return { options: {}, mimeType: '', extension: 'webm' };
+            }
+
+            for (const candidate of candidates) {
+                if (MediaRecorder.isTypeSupported(candidate.mimeType)) {
+                    return {
+                        options: { mimeType: candidate.mimeType },
+                        mimeType: candidate.mimeType,
+                        extension: candidate.extension
+                    };
+                }
+            }
+
+            return { options: {}, mimeType: '', extension: 'webm' };
+        }
 
         function resetScreensaverTimer() {
             if (screensaverTimeout) clearTimeout(screensaverTimeout);
@@ -859,6 +1101,12 @@
 
         // Initialize
         async function init() {
+            setAppHeight();
+            showInstallHintIfNeeded();
+            registerServiceWorker();
+            restorePreferences();
+            window.addEventListener('resize', setAppHeight);
+
             // Load all expression states
             const allStates = Object.keys(faceImages);
             for (const state of allStates) {
@@ -908,6 +1156,12 @@
             checkHailoStatus();
             setInterval(checkHailoStatus, 5000);
 
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                micBtn.disabled = true;
+                micBtn.title = 'Microphone access is not available in this browser';
+                disableHandsFree('Hands-Free mode is not available in this browser');
+            }
+
             // Initialize Hands-Free Mode
             initHandsFreeMode();
 
@@ -924,9 +1178,8 @@
         let mediaStream = null;
 
         function initHandsFreeMode() {
-            const handsFreeToggle = document.getElementById('hands-free-toggle');
-
             handsFreeToggle.addEventListener('change', async (e) => {
+                persistTogglePreference('bmo.hands_free', e.target.checked);
                 if (e.target.checked) {
                     userInput.placeholder = "Hands-Free Mode: Say 'Hey Beemo'...";
                     await startWakeWordListener();
@@ -935,6 +1188,11 @@
                     stopWakeWordListener();
                 }
             });
+
+            if (handsFreeToggle.checked && !handsFreeToggle.disabled) {
+                userInput.placeholder = "Hands-Free Mode: Say 'Hey Beemo'...";
+                startWakeWordListener();
+            }
         }
 
         async function startWakeWordListener() {
@@ -1034,10 +1292,29 @@
 
         async function startRecording() {
             if (isRecording) return;
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                alert("This browser does not support microphone capture.");
+                return;
+            }
+            if (typeof MediaRecorder === 'undefined') {
+                alert("This browser does not support audio recording.");
+                return;
+            }
 
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                mediaRecorder = new MediaRecorder(stream);
+                const recordingConfig = getRecordingConfig();
+                currentRecordingMimeType = recordingConfig?.mimeType || '';
+                currentRecordingExtension = recordingConfig?.extension || 'webm';
+                try {
+                    mediaRecorder = recordingConfig && Object.keys(recordingConfig.options).length > 0
+                        ? new MediaRecorder(stream, recordingConfig.options)
+                        : new MediaRecorder(stream);
+                } catch (error) {
+                    mediaRecorder = new MediaRecorder(stream);
+                    currentRecordingMimeType = mediaRecorder.mimeType || '';
+                    currentRecordingExtension = getExtensionForMimeType(currentRecordingMimeType);
+                }
                 audioChunks = [];
 
                 // Setup VAD (Voice Activity Detection)
@@ -1089,8 +1366,9 @@
                         vadAudioContext.close();
                     }
 
-                    const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
-                    await processAudio(audioBlob);
+                    const blobType = currentRecordingMimeType || mediaRecorder.mimeType || 'audio/webm';
+                    const audioBlob = new Blob(audioChunks, { type: blobType });
+                    await processAudio(audioBlob, currentRecordingExtension);
 
                     // Stop all tracks to release microphone
                     stream.getTracks().forEach(track => track.stop());
@@ -1158,9 +1436,9 @@
             }
         }
 
-        async function processAudio(audioBlob) {
+        async function processAudio(audioBlob, extension = 'webm') {
             const formData = new FormData();
-            formData.append('audio', audioBlob, 'recording.webm');
+            formData.append('audio', audioBlob, `recording.${extension}`);
 
             try {
                 userInput.disabled = true;
@@ -1471,7 +1749,7 @@
                     body: JSON.stringify({
                         message: originalText,
                         history: conversationHistory,
-                        play_on_hardware: audioToggle.checked,
+                        play_on_hardware: playOnHardware,
                         image: imageData
                     })
                 });
@@ -1527,7 +1805,7 @@
                         currentAudio.pause();
                     }
 
-                    if (data.audio_url && !audioToggle.checked) {
+                    if (data.audio_url && !playOnHardware) {
                         currentAudio = new Audio(data.audio_url);
 
                         // We need the duration for accurate captions. Audio metadata load gets that.
@@ -1613,7 +1891,7 @@
                     body: JSON.stringify({
                         message: text,
                         history: conversationHistory,
-                        play_on_hardware: audioToggle.checked
+                        play_on_hardware: playOnHardware
                     })
                 });
 
@@ -1678,7 +1956,7 @@
                         currentAudio.pause();
                     }
 
-                    if (data.audio_url && !audioToggle.checked) {
+                    if (data.audio_url && !playOnHardware) {
                         // Play audio in browser
                         currentAudio = new Audio(data.audio_url);
 

@@ -38,7 +38,7 @@ The web interface includes:
 - **Pronunciation override** — corrects how Piper pronounces specific words
 - **LLM status indicator** — shows whether the NPU model is ready
 - **Hands-free mode** — enables wake word detection so you don't need to hold the button
-- **Pi Audio toggle** — routes audio to the Pi's physical speaker instead of browser playback
+- **Browser audio playback** — generated speech plays back directly in the web client
 
 ---
 
@@ -57,6 +57,30 @@ Modern browsers require HTTPS for microphone access, which makes things awkward 
 4. Access the web UI at `https://<your-pi-hostname>.ts.net`
 
 Your BMO is then reachable from your phone, laptop, or any device on your Tailnet — mic access works, and it's not exposed to the open internet.
+
+---
+
+## Web App / PWA mode
+
+The practical mobile path for this project is to treat the browser as the client UI and keep inference on the Pi or another server. The original stack depends on Linux-only pieces like HailoRT, `hailo-ollama`, ALSA audio playback, Piper CLI, and `whisper.cpp`, so this repo does not try to run the full AI pipeline natively on a phone or tablet.
+
+The web UI is set up to work as an installable web app:
+- Open the HTTPS URL in a modern browser
+- Use your browser's install or **Add to Home Screen** action
+- Launch BMO in standalone mode
+
+This gives you:
+- Full-screen app-style launch on mobile
+- Mobile-safe layout and larger touch controls
+- Browser-friendly microphone recording
+- PWA install metadata and cached UI shell
+
+If you later want a real native mobile app, the next step is a separate client that talks to the existing backend API:
+- `/api/chat`
+- `/api/transcribe`
+- `/api/status`
+- `/api/faces/{state}`
+- `/api/sounds/{category}`
 
 ---
 

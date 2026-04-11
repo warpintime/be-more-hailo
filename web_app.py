@@ -40,6 +40,36 @@ os.makedirs("static/audio", exist_ok=True)
 import time as _time
 AUDIO_DIR = os.path.join("static", "audio")
 AUDIO_MAX_AGE_SECONDS = 300  # 5 minutes
+UPLOAD_CONTENT_TYPE_SUFFIXES = {
+    "audio/aac": ".aac",
+    "audio/flac": ".flac",
+    "audio/m4a": ".m4a",
+    "audio/mp4": ".mp4",
+    "audio/mpeg": ".mp3",
+    "audio/ogg": ".ogg",
+    "audio/wav": ".wav",
+    "audio/webm": ".webm",
+    "video/mp4": ".mp4",
+    "video/webm": ".webm",
+}
+ALLOWED_UPLOAD_SUFFIXES = {
+    ".aac",
+    ".flac",
+    ".m4a",
+    ".mp3",
+    ".mp4",
+    ".ogg",
+    ".wav",
+    ".webm",
+}
+
+
+def _guess_upload_suffix(upload: UploadFile) -> str:
+    filename = upload.filename or ""
+    suffix = os.path.splitext(filename)[1].lower()
+    if suffix in ALLOWED_UPLOAD_SUFFIXES:
+        return suffix
+    return UPLOAD_CONTENT_TYPE_SUFFIXES.get((upload.content_type or "").lower(), ".webm")
 
 def _cleanup_old_audio():
     """Remove generated audio files older than AUDIO_MAX_AGE_SECONDS."""
@@ -83,6 +113,25 @@ async def read_root(request: Request):
 @app.get("/favicon.png")
 async def get_favicon():
     return FileResponse("favicon.png")
+
+
+@app.get("/apple-touch-icon.png")
+async def get_apple_touch_icon():
+    return FileResponse("favicon.png")
+
+
+@app.get("/manifest.webmanifest")
+async def get_manifest():
+    return FileResponse("static/manifest.webmanifest", media_type="application/manifest+json")
+
+
+@app.get("/service-worker.js")
+async def get_service_worker():
+    return FileResponse(
+        "static/service-worker.js",
+        media_type="application/javascript",
+        headers={"Cache-Control": "no-cache"},
+    )
 
 @app.post("/api/pronunciation")
 async def add_pronunciation_rule(request: PronunciationRequest):
@@ -199,7 +248,7 @@ async def transcribe(audio: UploadFile = File(...)):
     Receive an audio file from the browser, save it temporarily,
     and transcribe it using whisper.cpp.
     """
-    temp_filename = f"temp_{uuid.uuid4().hex}.webm"
+    temp_filename = f"temp_{uuid.uuid4().hex}{_guess_upload_suffix(audio)}"
     temp_filepath = os.path.join("static", "audio", temp_filename)
     
     try:

@@ -16,11 +16,9 @@ if LLM_PROVIDER not in ("ollama", "gemini"):
 LLM_URL = os.getenv("LLM_URL", "http://127.0.0.1:8000/api/chat")
 LLM_MODEL = os.getenv("LLM_MODEL", "qwen2.5-instruct:1.5b") # Native Hailo model for all queries
 FAST_LLM_MODEL = os.getenv("FAST_LLM_MODEL", LLM_MODEL) # Keep fast and main model in sync by default
-VISION_MODEL = "qwen2-vl-instruct:2b" # Legacy Ollama name (unused — VLM runs via HailoRT directly)
-
-# VLM (Vision Language Model) Settings — uses HailoRT Python API directly
-# The HEF file is a precompiled model binary from Hailo's model zoo
-VLM_HEF_PATH = os.environ.get("VLM_HEF_PATH", "./models/Qwen2-VL-2B-Instruct.hef")
+# Vision model for image understanding via Ollama.
+# Leave empty to reuse LLM_MODEL if it supports image input.
+VISION_MODEL = os.getenv("VISION_MODEL", "").strip()
 
 # Gemini Settings
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "") # Add your Gemini API key to a .env file
